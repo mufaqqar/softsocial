@@ -1,0 +1,18 @@
+node_modules
+.next
+out
+build
+coverage
+
+# Local media written by the "local" storage driver.
+storage
+
+# Real secrets. .env.example is committed.
+.env
+.env.local
+.env.*.local
+
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+npm-debug.log*

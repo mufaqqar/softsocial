@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: softsocial-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: softsocial
+    ports:
+      - "5432:5432"
+    volumes:
+      - softsocial-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d softsocial"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  softsocial-db:

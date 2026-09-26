@@ -1,0 +1,754 @@
+// SoftSocial - multi-tenant social media management, publishing & team coordination
+// Prisma 7 schema. The datasource URL is supplied by prisma.config.ts because
+// Prisma 7 uses driver adapters at runtime.
+//
+// Phasing (see master.txt):
+//   Phase 1  MANUAL  - team, manual social profiles, posts, targets, media.
+//                     Every provider-specific field below is NULLABLE so Phase 1
+//                     runs with no Meta/LinkedIn credentials and no OAuth.
+//   Phase 2  SCHEDULE- scheduledAt/timezone/reminderAt + OVERDUE on PostTarget.
+//   Phase 3  AUTO    - SocialConnection/OAuthState/PublishJob/PublishAttempt/
+//                     PublishLog become live and the nullable provider fields
+//                     on SocialProfile are populated.
+//
+// Nothing in Phase 1 reads or writes a Phase 3 table.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+/// Phase 1 roles. Granular roles (EDITOR/AUTHOR/APPROVER) are added later.
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum MemberStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  REMOVED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+/// The publishing platform a social profile belongs to. Phase 1 supports
+/// Facebook and LinkedIn; more values can be appended without a rewrite.
+enum SocialPlatform {
+  FACEBOOK
+  LINKEDIN
+}
+
+enum SocialProviderName {
+  META
+  LINKEDIN
+  INSTAGRAM
+  X
+  THREADS
+  PINTEREST
+  YOUTUBE
+  GOOGLE_BUSINESS
+}
+
+/// Shared by SocialConnection and SocialProfile. Phase 1 only ever writes
+/// ACTIVE / INACTIVE / ARCHIVED; the remaining values describe API health in
+/// Phase 3.
+enum ConnectionStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+  REAUTH_REQUIRED
+  DISCONNECTED
+  ERROR
+}
+
+enum SocialProfileType {
+  FACEBOOK_PAGE
+  LINKEDIN_ORGANIZATION
+  LINKEDIN_PROFILE
+  INSTAGRAM_BUSINESS
+  X_PROFILE
+  THREADS_PROFILE
+  YOUTUBE_CHANNEL
+}
+
+enum AccountAccessLevel {
+  VIEW
+  PUBLISH
+  MANAGE
+}
+
+enum PostStatus {
+  DRAFT
+  MANUAL_PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  // Phase 2
+  SCHEDULED
+  // Phase 3
+  PENDING_APPROVAL
+  REJECTED
+  APPROVED
+  PROCESSING
+  PUBLISHED
+  PARTIALLY_PUBLISHED
+  FAILED
+  BLOCKED
+}
+
+enum PostTargetStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+  // Phase 2
+  OVERDUE
+  // Phase 3
+  QUEUED
+  PROCESSING
+  PUBLISHED
+  BLOCKED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  GIF
+  DOCUMENT
+}
+
+enum JobStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  FAILED
+  CANCELLED
+  DEAD
+}
+
+enum PublishResult {
+  SUCCESS
+  FAILURE
+}
+
+enum NotificationType {
+  WORKSPACE_INVITATION
+  POST_ASSIGNED
+  POST_SUBMITTED
+  POST_APPROVED
+  POST_REJECTED
+  POST_PUBLISHED
+  POST_FAILED
+  POST_SCHEDULED
+  POST_CANCELLED
+  CONNECTION_REAUTH_REQUIRED
+  COMMENT_ADDED
+  SYSTEM
+}
+
+enum ActivityAction {
+  WORKSPACE_CREATED
+  WORKSPACE_UPDATED
+  USER_REGISTERED
+  USER_LOGGED_IN
+  MEMBER_INVITED
+  MEMBER_ROLE_CHANGED
+  MEMBER_STATUS_CHANGED
+  MEMBER_REMOVED
+  SOCIAL_PROFILE_CREATED
+  SOCIAL_PROFILE_UPDATED
+  SOCIAL_PROFILE_REMOVED
+  POST_CREATED
+  POST_UPDATED
+  POST_CANCELLED
+  POST_TARGET_STATUS_CHANGED
+  POST_COMMENT_ADDED
+  MEDIA_UPLOADED
+  MEDIA_REMOVED
+  SETTINGS_UPDATED
+  // Phase 3
+  SOCIAL_CONNECTION_CREATED
+  SOCIAL_CONNECTION_REMOVED
+  SOCIAL_CONNECTION_REAUTH
+  SOCIAL_ACCOUNT_ACCESS_CHANGED
+  POST_SUBMITTED
+  POST_APPROVED
+  POST_REJECTED
+  POST_SCHEDULED
+  POST_PUBLISHED
+  POST_FAILED
+  POST_RETRIED
+}
+
+enum ActivityEntityType {
+  USER
+  WORKSPACE
+  INVITATION
+  SOCIAL_CONNECTION
+  SOCIAL_PROFILE
+  POST
+  POST_TARGET
+  MEDIA
+  SETTINGS
+  TEMPLATE
+}
+
+// ---------------------------------------------------------------------------
+// Identity & tenancy
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String?
+  avatarUrl    String?
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  memberships      WorkspaceMember[]
+  invitationsSent  Invitation[]        @relation("InvitationInviter")
+  invitationsUsed  Invitation[]        @relation("InvitationAcceptor")
+  createdPosts     Post[]              @relation("PostCreatedBy")
+  updatedPosts     Post[]              @relation("PostUpdatedBy")
+  approvedPosts    Post[]              @relation("PostApprovedBy")
+  publishedPosts   Post[]              @relation("PostPublishedBy")
+  assignedPosts    Post[]              @relation("PostAssignedTo")
+  comments         PostComment[]
+  notifications    Notification[]
+  activityLogs     ActivityLog[]
+  uploadedMedia    Media[]
+  connectedAccounts  SocialConnection[]
+  socialAccountAccess SocialAccountMember[]
+
+  /// Phase 1 assignment of tasks.
+  assignedTargets   PostTarget[]     @relation("PostTargetAssignedTo")
+  completedTargets  PostTarget[]     @relation("PostTargetCompletedBy")
+  assignedProfiles  SocialProfile[]  @relation("SocialProfileAssignedTo")
+
+  createdSessions Session[]
+  revokedSessions Session[] @relation("SessionRevokedBy")
+
+  @@index([status])
+}
+
+/// A revocable server-side session. The browser only ever holds a signed JWT
+/// containing this id; revoking the row invalidates the token immediately.
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  revokedById String?
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime  @default(now())
+
+  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  revokedBy User? @relation("SessionRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  timezone  String   @default("Asia/Karachi")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  members       WorkspaceMember[]
+  invitations   Invitation[]
+  settings      WorkspaceSetting[]
+  connections   SocialConnection[]
+  profiles      SocialProfile[]
+  posts         Post[]
+  media         Media[]
+  jobs          PublishJob[]
+  notifications Notification[]
+  activityLogs  ActivityLog[]
+  comments      PostComment[]
+  templates     Template[]
+  publishLogs   PublishLog[]
+
+  @@index([deletedAt])
+}
+
+model WorkspaceMember {
+  id          String       @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole
+  status      MemberStatus @default(ACTIVE)
+  invitedById String?
+  joinedAt    DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@index([workspaceId, role])
+}
+
+model Invitation {
+  id          String           @id @default(cuid())
+  workspaceId String
+  email       String
+  role        WorkspaceRole
+  tokenHash   String           @unique
+  invitedById String
+  acceptedById String?
+  status      InvitationStatus @default(PENDING)
+  expiresAt   DateTime
+  createdAt   DateTime         @default(now())
+  acceptedAt  DateTime?
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy   User      @relation("InvitationInviter", fields: [invitedById], references: [id], onDelete: Cascade)
+  acceptedBy  User?     @relation("InvitationAcceptor", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, email])
+  @@index([email, status])
+}
+
+model WorkspaceSetting {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  defaultTimezone  String   @default("Asia/Karachi")
+  requireApproval  Boolean  @default(false)
+  maxRetries       Int      @default(3)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Social profiles (Phase 1: manual records. Phase 3: API-backed.)
+// ---------------------------------------------------------------------------
+
+model SocialConnection {
+  id                    String               @id @default(cuid())
+  workspaceId           String
+  connectedByUserId     String
+  provider              SocialProviderName
+  providerAccountId     String
+  displayName           String
+  avatarUrl             String?
+  status                ConnectionStatus     @default(ACTIVE)
+  accessTokenEncrypted  String?
+  refreshTokenEncrypted String?
+  tokenExpiresAt        DateTime?
+  scopes                String[]
+  metadata              Json?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  lastUsedAt            DateTime?
+  disconnectedAt        DateTime?
+
+  workspace       Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connectedByUser User                  @relation(fields: [connectedByUserId], references: [id], onDelete: Cascade)
+  profiles        SocialProfile[]
+  accessMembers   SocialAccountMember[]
+
+  @@unique([workspaceId, provider, providerAccountId])
+  @@index([workspaceId, status])
+}
+
+model SocialProfile {
+  id          String            @id @default(cuid())
+  workspaceId String
+  /// Phase 1. Manual records only.
+  platform    SocialPlatform
+  name        String
+  username    String?
+  profileUrl  String?
+  avatarUrl   String?
+  description String?
+  notes       String?
+  status      ConnectionStatus  @default(ACTIVE)
+
+  /// The member who owns publishing to this profile by default.
+  assignedUserId String?
+
+  /// Phase 3. NULL for every Phase 1 manual record. Set when a manual record is
+  /// linked to the real Page/organisation discovered over OAuth.
+  provider            SocialProviderName?
+  providerProfileId   String?
+  socialConnectionId  String?
+  type                SocialProfileType?
+  metadata            Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace        Workspace?   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  socialConnection SocialConnection? @relation(fields: [socialConnectionId], references: [id], onDelete: SetNull)
+  assignedUser     User?        @relation("SocialProfileAssignedTo", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  accessMembers    SocialAccountMember[]
+  postTargets      PostTarget[]
+  mediaLinks       PostMedia[]
+
+  /// Two profiles may not share a name on the same platform in one workspace.
+  @@unique([workspaceId, platform, name])
+  /// Postgres treats NULLs as distinct, so Phase 1 manual rows (all three
+  /// provider columns NULL) never collide here.
+  @@unique([workspaceId, platform, providerProfileId])
+  @@index([workspaceId, status])
+  @@index([socialConnectionId])
+  @@index([workspaceId, platform])
+}
+
+model SocialAccountMember {
+  id                   String             @id @default(cuid())
+  socialConnectionId   String
+  socialProfileId      String?
+  userId               String
+  permissionLevel      AccountAccessLevel @default(VIEW)
+  createdAt            DateTime           @default(now())
+
+  socialConnection SocialConnection @relation(fields: [socialConnectionId], references: [id], onDelete: Cascade)
+  socialProfile    SocialProfile?   @relation(fields: [socialProfileId], references: [id], onDelete: Cascade)
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([socialConnectionId, socialProfileId, userId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Content
+// ---------------------------------------------------------------------------
+
+model Post {
+  id              String     @id @default(cuid())
+  workspaceId     String
+  title           String?
+  /// The general / default copy. Platform-specific copy lives in PostVariant.
+  content         String     @default("")
+  hashtags        String[]   @default([])
+  notes           String?
+  status          PostStatus @default(DRAFT)
+  createdByUserId String
+  updatedByUserId String?
+  approvedByUserId String?
+  publishedByUserId String?
+  approvalNote    String?
+  rejectionNote   String?
+  /// Default assignee for targets created without their own assignee.
+  assignedUserId  String?
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  workspace     Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy     User       @relation("PostCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  updatedBy     User?      @relation("PostUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  approvedBy    User?      @relation("PostApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  publishedBy   User?      @relation("PostPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+  assignedTo    User?      @relation("PostAssignedTo", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  variants      PostVariant[]
+  targets       PostTarget[]
+  media         PostMedia[]
+  comments      PostComment[]
+  jobs          PublishJob[]
+  attempts      PublishAttempt[]
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, scheduledAt])
+  @@index([createdByUserId])
+  @@index([workspaceId, createdAt])
+  @@index([assignedUserId])
+}
+
+/// One row per platform. Phase 1 writes FACEBOOK and LINKEDIN; Phase 3 reuses
+/// the same rows for the provider-specific copy.
+model PostVariant {
+  id       String         @id @default(cuid())
+  postId   String
+  platform SocialPlatform
+  provider SocialProviderName?
+  text     String         @default("")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, platform])
+}
+
+model PostTarget {
+  id              String           @id @default(cuid())
+  postId          String
+  workspaceId     String
+  socialProfileId String
+  /// Who publishes this specific profile by hand. Defaults to Post.assignedUserId.
+  assignedUserId  String?
+  status          PostTargetStatus @default(PENDING)
+  notes           String?
+  completedAt     DateTime?
+  completedByUserId String?
+  /// Phase 2 scheduling fields (nullable and unused in Phase 1).
+  timezone        String?
+  scheduledAt     DateTime?
+  reminderAt      DateTime?
+  /// Phase 3 publishing fields.
+  publishedAt     DateTime?
+  providerPostId  String?
+  providerUrl     String?
+  errorCode       String?
+  errorMessage    String?
+  retryCount      Int              @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  post          Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  socialProfile SocialProfile @relation(fields: [socialProfileId], references: [id], onDelete: Cascade)
+  assignedUser  User?         @relation("PostTargetAssignedTo", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  completedBy   User?         @relation("PostTargetCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  jobs          PublishJob[]
+  attempts      PublishAttempt[]
+
+  @@unique([postId, socialProfileId])
+  @@index([workspaceId, status])
+  @@index([socialProfileId])
+  @@index([assignedUserId, status])
+  @@index([workspaceId, scheduledAt])
+}
+
+model PostMedia {
+  id              String   @id @default(cuid())
+  postId          String
+  mediaId         String
+  socialProfileId String?
+  position        Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  post          Post           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  media         Media          @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  socialProfile SocialProfile? @relation(fields: [socialProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, mediaId])
+  @@index([mediaId])
+}
+
+model PostComment {
+  id          String   @id @default(cuid())
+  workspaceId String
+  postId      String
+  userId      String
+  content     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt])
+  @@index([workspaceId])
+}
+
+model Media {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  filename     String
+  mimeType     String
+  size         Int
+  /// Provider-relative key, e.g. "w_abc/xyz.png". Resolved by the storage layer.
+  storageKey   String
+  width        Int?
+  height       Int?
+  durationMs   Int?
+  altText      String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  uploadedById String
+
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  uploadedBy User        @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  posts      PostMedia[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, filename])
+}
+
+model Template {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  content     String   @default("")
+  variables   String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// Publishing engine (Phase 3). Declared now so Phase 3 is additive.
+// ---------------------------------------------------------------------------
+
+model PublishJob {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  postId        String
+  postTargetId  String
+  status        JobStatus @default(PENDING)
+  runAt         DateTime  @default(now())
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(3)
+  lockedAt      DateTime?
+  lockedBy      String?
+  lastErrorCode String?
+  lastError     String?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspace  Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  post       Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postTarget PostTarget @relation(fields: [postTargetId], references: [id], onDelete: Cascade)
+
+  @@unique([postTargetId])
+  @@index([status, runAt])
+  @@index([workspaceId, status])
+  @@index([status, lockedAt])
+}
+
+model PublishAttempt {
+  id                 String              @id @default(cuid())
+  workspaceId        String
+  postId             String
+  postTargetId       String
+  socialProfileId    String
+  platform           SocialPlatform
+  jobId              String?
+  attempt            Int
+  result             PublishResult
+  errorCode          String?
+  errorMessage       String?
+  providerPostId     String?
+  providerResponseId String?
+  durationMs         Int?
+  createdAt          DateTime            @default(now())
+
+  post       Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postTarget PostTarget @relation(fields: [postTargetId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([postTargetId, attempt])
+  @@index([postId])
+}
+
+model PublishLog {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  postId           String
+  postTargetId     String?
+  socialProfileId  String?
+  level            String
+  message          String
+  context          Json?
+  createdAt        DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([postId])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications, activity, OAuth state
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id          String           @id @default(cuid())
+  workspaceId String
+  userId      String
+  type        NotificationType
+  title       String
+  body        String?
+  entityType  String?
+  entityId    String?
+  readAt      DateTime?
+  createdAt   DateTime         @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([workspaceId, createdAt])
+}
+
+model ActivityLog {
+  id          String            @id @default(cuid())
+  workspaceId String
+  userId      String?
+  action      ActivityAction
+  entityType  ActivityEntityType
+  entityId    String
+  summary     String
+  metadata    Json?
+  ipAddress   String?
+  createdAt   DateTime          @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([entityType, entityId])
+}
+
+model OAuthState {
+  id           String               @id @default(cuid())
+  state        String               @unique
+  workspaceId  String
+  userId       String
+  provider     SocialProviderName
+  codeVerifier String?
+  redirectTo   String?
+  expiresAt    DateTime
+  createdAt    DateTime             @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}

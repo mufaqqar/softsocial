@@ -1,0 +1,1354 @@
+MASTER PROMPT
+SOCIAL MEDIA TEAM MANAGEMENT & PUBLISHING SYSTEM
+3-PHASE DEVELOPMENT PLAN
+
+PROJECT OBJECTIVE
+Build a professional self-hosted social media management system using:
+- Next.js
+- TypeScript
+- App Router
+- Tailwind CSS
+- shadcn/ui
+- PostgreSQL
+- Prisma ORM
+- Redis/BullMQ only in Phase 3
+- Official Meta/Facebook APIs only in Phase 3
+- Official LinkedIn APIs only in Phase 3
+- OAuth only in Phase 3
+- Docker
+
+The system manages multiple Facebook Pages and LinkedIn profiles/pages with a team.
+
+IMPORTANT:
+Build exactly 3 phases.
+
+PHASE 1 = MANUAL MANAGEMENT
+PHASE 2 = CALENDAR + SCHEDULING
+PHASE 3 = AUTOMATIC API PUBLISHING
+
+Do not build Phase 3 first.
+
+============================================================
+PHASE 1 - MANUAL SOCIAL MEDIA MANAGEMENT
+============================================================
+
+PURPOSE
+
+Create a simple team dashboard where I can:
+1. Add multiple Facebook profiles/pages manually.
+2. Add multiple LinkedIn profiles/pages manually.
+3. Add team members.
+4. Create posts.
+5. Select multiple social profiles/pages for each post.
+6. Assign posts/tasks to team members.
+7. Team members manually copy the content and publish it on Facebook/LinkedIn.
+8. Team members mark each target as completed.
+
+NO API AUTOMATION IN PHASE 1.
+NO FACEBOOK OAUTH.
+NO LINKEDIN OAUTH.
+NO AUTOMATIC PUBLISHING.
+
+The purpose is to create the internal management system first.
+
+------------------------------------------------------------
+1. AUTHENTICATION
+------------------------------------------------------------
+
+Create secure authentication.
+
+Initial roles:
+OWNER
+ADMIN
+MEMBER
+
+OWNER:
+- Full access.
+
+ADMIN:
+- Manage posts
+- Manage profiles
+- Manage team
+- Assign posts
+
+MEMBER:
+- View assigned tasks
+- Copy content
+- Mark targets completed
+- Add notes
+
+Prepare the architecture for more granular permissions later.
+
+------------------------------------------------------------
+2. WORKSPACE
+------------------------------------------------------------
+
+Create a Workspace.
+
+Example:
+IT Eksperts
+
+Members:
+Mufaqar
+Ahmed
+Ali
+Sara
+
+All records must be scoped by workspaceId.
+
+A user must never access another workspace's data.
+
+------------------------------------------------------------
+3. TEAM MANAGEMENT
+------------------------------------------------------------
+
+Create:
+/dashboard/team
+
+Features:
+- Add team member
+- Edit member
+- Change role
+- Suspend member
+- Remove member
+- View status
+
+Fields:
+Name
+Email
+Role
+Status
+Created At
+
+------------------------------------------------------------
+4. SOCIAL PROFILES
+------------------------------------------------------------
+
+Create:
+/dashboard/social-profiles
+
+In Phase 1 these are MANUAL records.
+
+Do not connect to Facebook or LinkedIn APIs yet.
+
+Form:
+Platform: Facebook / LinkedIn
+Profile/Page Name
+Profile/Page URL
+Username
+Profile Image
+Description
+Assigned Team Member
+Status
+Notes
+
+Allow unlimited profiles.
+
+------------------------------------------------------------
+5. MULTIPLE FACEBOOK PAGES
+------------------------------------------------------------
+
+Example:
+Facebook:
+- IT Eksperts
+- CrimeCaseHub
+- PsychologyVexa
+- MoneyMuse USA
+- WC Pulse
+- Client ABC
+- Client XYZ
+
+Each is a separate SocialProfile.
+
+Do not assume one Facebook identity has only one Page.
+
+Phase 1 simply stores the records manually.
+
+------------------------------------------------------------
+6. MULTIPLE LINKEDIN PROFILES/PAGES
+------------------------------------------------------------
+
+Example:
+LinkedIn:
+- IT Eksperts
+- Mufaqar Personal
+- Client ABC
+- Client XYZ
+
+Each is stored separately.
+
+------------------------------------------------------------
+7. SOCIAL PROFILE MODEL
+------------------------------------------------------------
+
+Create:
+
+SocialProfile
+
+Fields:
+id
+workspaceId
+platform
+name
+url
+username
+avatar
+description
+status
+notes
+assignedUserId
+createdAt
+updatedAt
+
+Platform:
+FACEBOOK
+LINKEDIN
+
+Future platforms can be added later.
+
+------------------------------------------------------------
+8. POSTS
+------------------------------------------------------------
+
+Create:
+/dashboard/posts
+
+Owner/Admin can create a post.
+
+Fields:
+Post Title
+Post Content
+Media
+Selected Social Profiles
+Assigned Team Member
+Status
+
+Statuses:
+DRAFT
+MANUAL_PENDING
+IN_PROGRESS
+COMPLETED
+CANCELLED
+
+Example targets:
+[ ] Facebook - IT Eksperts
+[ ] Facebook - CrimeCaseHub
+[ ] Facebook - MoneyMuse
+[ ] LinkedIn - IT Eksperts
+
+------------------------------------------------------------
+9. PLATFORM-SPECIFIC CONTENT
+------------------------------------------------------------
+
+Allow separate content for Facebook and LinkedIn.
+
+Example:
+
+General:
+AI chatbots can help businesses...
+
+Facebook:
+"🚀 Want an AI chatbot on your website?"
+
+LinkedIn:
+"AI-powered customer support is becoming..."
+
+Store these as PostVariants.
+
+------------------------------------------------------------
+10. POST ASSIGNMENT
+------------------------------------------------------------
+
+A post can have one or more target profiles and an assigned team member.
+
+Example:
+
+Post:
+AI Chatbot Promotion
+
+Targets:
+Facebook - IT Eksperts
+Facebook - MoneyMuse
+LinkedIn - IT Eksperts
+
+Assigned:
+Ahmed
+
+Ahmed's dashboard:
+
+MY TASKS
+AI Chatbot Promotion
+
+Targets:
+Facebook - IT Eksperts
+Facebook - MoneyMuse
+LinkedIn - IT Eksperts
+
+Actions:
+[Open]
+[Mark Facebook Done]
+[Mark LinkedIn Done]
+[Add Note]
+
+------------------------------------------------------------
+11. MANUAL PUBLISHING WORKFLOW
+------------------------------------------------------------
+
+Owner/Admin creates post.
+Selects social profiles.
+Assigns team member.
+
+Team member:
+1. Opens the post.
+2. Copies content.
+3. Manually logs into Facebook/LinkedIn.
+4. Manually publishes.
+5. Returns to the system.
+6. Marks the target COMPLETED.
+
+Do not automate publishing in Phase 1.
+
+------------------------------------------------------------
+12. POST TARGETS
+------------------------------------------------------------
+
+Create:
+
+PostTarget
+
+Fields:
+id
+postId
+socialProfileId
+assignedUserId
+status
+completedAt
+completedBy
+notes
+createdAt
+updatedAt
+
+Statuses:
+PENDING
+IN_PROGRESS
+COMPLETED
+FAILED
+CANCELLED
+
+Each social profile is tracked independently.
+
+------------------------------------------------------------
+13. MANUAL PUBLISHING CHECKLIST
+------------------------------------------------------------
+
+Show a checklist.
+
+Example:
+
+AI Chatbot Promotion
+
+Facebook:
+[✓] IT Eksperts
+[ ] MoneyMuse
+[ ] CrimeCaseHub
+
+LinkedIn:
+[ ] IT Eksperts
+
+Each target can be completed independently.
+
+------------------------------------------------------------
+14. COPY BUTTONS
+------------------------------------------------------------
+
+Add:
+[Copy Facebook Content]
+[Copy LinkedIn Content]
+[Copy Hashtags]
+[Copy Full Post]
+
+Use clipboard API.
+
+Show "Copied!" feedback.
+
+------------------------------------------------------------
+15. MEDIA
+------------------------------------------------------------
+
+Phase 1:
+- Upload image
+- Preview
+- Open/download
+- Attach to post
+
+Team members can manually download/open the image and upload it to Facebook/LinkedIn.
+
+Use local storage in development and a storage abstraction for future production storage.
+
+------------------------------------------------------------
+16. POST DETAILS
+------------------------------------------------------------
+
+Create:
+/dashboard/posts/[id]
+
+Show:
+- Title
+- Content
+- Media
+- Facebook version
+- LinkedIn version
+- Assigned member
+- Social targets
+- Status
+- Notes
+
+Example:
+
+AI CHATBOT PROMOTION
+
+Facebook:
+"🚀 Need an AI chatbot..."
+[Copy]
+
+LinkedIn:
+"AI-powered customer support..."
+[Copy]
+
+TARGETS:
+✓ Facebook - IT Eksperts
+✓ Facebook - MoneyMuse
+□ LinkedIn - IT Eksperts
+
+Assigned:
+Ahmed
+
+------------------------------------------------------------
+17. PHASE 1 DASHBOARD
+------------------------------------------------------------
+
+Show:
+- Total Social Profiles
+- Total Posts
+- Pending Tasks
+- Completed Tasks
+- Team Members
+
+Also:
+- Recent Posts
+- My Tasks
+- Team Activity
+
+------------------------------------------------------------
+18. PHASE 1 DATABASE
+------------------------------------------------------------
+
+Create at least:
+User
+Workspace
+WorkspaceMember
+SocialProfile
+Post
+PostVariant
+PostTarget
+Media
+PostComment
+ActivityLog
+Notification
+
+Prepare the architecture so Phase 2 and Phase 3 can extend it.
+
+------------------------------------------------------------
+19. PHASE 1 UI
+------------------------------------------------------------
+
+Sidebar:
+Dashboard
+Posts
+Social Profiles
+Media
+Team
+Activity
+Settings
+
+Use:
+Tailwind CSS
+shadcn/ui
+Lucide icons
+
+Support:
+Light
+Dark
+System
+
+------------------------------------------------------------
+20. PHASE 1 ACCEPTANCE TEST
+------------------------------------------------------------
+
+Mufaqar logs in.
+
+Creates:
+IT Eksperts
+
+Adds:
+Ahmed
+Ali
+Sara
+
+Adds:
+Facebook - IT Eksperts
+Facebook - CrimeCaseHub
+Facebook - MoneyMuse
+Facebook - WC Pulse
+LinkedIn - IT Eksperts
+LinkedIn - Client ABC
+
+Creates:
+AI Chatbot Promotion
+
+Adds Facebook content.
+Adds LinkedIn content.
+Uploads image.
+
+Selects:
+Facebook IT Eksperts
+Facebook MoneyMuse
+Facebook WC Pulse
+LinkedIn IT Eksperts
+
+Assigns Ahmed.
+
+Ahmed logs in.
+Copies content.
+Manually publishes.
+Marks each target completed.
+
+Dashboard shows:
+4 targets
+3 completed
+1 pending
+
+PHASE 1 COMPLETE.
+
+============================================================
+PHASE 2 - CALENDAR + INTERNAL SCHEDULING
+============================================================
+
+PURPOSE
+
+Do NOT automatically publish to Facebook or LinkedIn yet.
+
+Add a calendar and scheduling system that tells the team:
+WHAT to post
+WHERE to post
+WHEN to post
+WHO should post it
+
+The team still manually publishes.
+
+------------------------------------------------------------
+2.1 CALENDAR
+------------------------------------------------------------
+
+Create:
+/dashboard/calendar
+
+Views:
+Month
+Week
+Day
+Agenda
+
+Display:
+Date
+Time
+Platform
+Social Profile
+Assigned Member
+Status
+
+Example:
+
+September 30
+10:00 AM
+AI Chatbot Promotion
+Facebook - IT Eksperts
+Ahmed
+
+11:00 AM
+AI Chatbot Promotion
+LinkedIn - IT Eksperts
+Sara
+
+------------------------------------------------------------
+2.2 SCHEDULED TARGETS
+------------------------------------------------------------
+
+Scheduling belongs to the individual PostTarget.
+
+Example:
+Facebook IT Eksperts:
+Sept 30, 10:00 AM
+
+Facebook MoneyMuse:
+Sept 30, 10:30 AM
+
+LinkedIn IT Eksperts:
+Sept 30, 11:00 AM
+
+Add:
+scheduledAt
+timezone
+reminderAt
+
+------------------------------------------------------------
+2.3 ASSIGNMENT
+------------------------------------------------------------
+
+For every scheduled target select:
+Social Profile
+Date
+Time
+Assigned Team Member
+
+------------------------------------------------------------
+2.4 CALENDAR DRAG AND DROP
+------------------------------------------------------------
+
+Authorized users can:
+- Move date
+- Move time
+- Change assignment
+
+Save changes server-side.
+
+------------------------------------------------------------
+2.5 TEAM CALENDAR
+------------------------------------------------------------
+
+Filters:
+Team Member
+Platform
+Social Profile
+Status
+
+Example:
+Filter Ahmed
+Shows only Ahmed's tasks.
+
+------------------------------------------------------------
+2.6 DAILY TASKS
+------------------------------------------------------------
+
+Create:
+/dashboard/tasks
+
+Example:
+
+TODAY
+
+10:00 AM
+Facebook - IT Eksperts
+AI Chatbot Promotion
+Ahmed
+
+11:00 AM
+LinkedIn - IT Eksperts
+AI Chatbot Promotion
+Sara
+
+Actions:
+[Open]
+[Copy Content]
+[Mark Published]
+[Mark Failed]
+
+------------------------------------------------------------
+2.7 REMINDERS
+------------------------------------------------------------
+
+Add in-app reminders.
+
+Example:
+"Your Facebook - IT Eksperts post is scheduled in 15 minutes."
+
+Optional email architecture may be prepared.
+
+No social API is required.
+
+------------------------------------------------------------
+2.8 PHASE 2 STATUS FLOW
+------------------------------------------------------------
+
+DRAFT
+SCHEDULED
+READY
+IN_PROGRESS
+COMPLETED
+FAILED
+CANCELLED
+OVERDUE
+
+If scheduledAt has passed and the target is still pending:
+OVERDUE
+
+------------------------------------------------------------
+2.9 PHASE 2 DASHBOARD
+------------------------------------------------------------
+
+Show:
+Today's posts
+Upcoming posts
+Overdue posts
+Completed posts
+Pending posts
+
+Example:
+Today:
+8 scheduled
+5 completed
+2 pending
+1 overdue
+
+------------------------------------------------------------
+2.10 PHASE 2 ACCEPTANCE TEST
+------------------------------------------------------------
+
+Create:
+AI Chatbot Promotion
+
+Targets:
+
+Facebook IT Eksperts
+Sept 30, 10:00 AM
+Ahmed
+
+Facebook MoneyMuse
+Sept 30, 10:30 AM
+Ahmed
+
+LinkedIn IT Eksperts
+Sept 30, 11:00 AM
+Sara
+
+Calendar shows all 3.
+
+Ahmed manually publishes the Facebook targets.
+Sara manually publishes LinkedIn.
+They mark targets completed.
+
+Calendar shows all as completed.
+
+PHASE 2 COMPLETE.
+
+============================================================
+PHASE 3 - AUTOMATIC FACEBOOK + LINKEDIN PUBLISHING
+============================================================
+
+PURPOSE
+
+Now introduce automatic publishing.
+
+The Phase 2 calendar becomes the source of publishing jobs.
+
+When the scheduled time arrives, the system automatically publishes
+to the selected Facebook Page or LinkedIn Organization using official APIs.
+
+------------------------------------------------------------
+3.1 OFFICIAL API ONLY
+------------------------------------------------------------
+
+Use:
+Official Meta/Facebook APIs
+Official LinkedIn APIs
+
+Never use:
+- Selenium
+- Puppeteer login automation
+- Playwright login automation
+- Scraping
+- Cookie automation
+- Fake browser sessions
+
+------------------------------------------------------------
+3.2 FACEBOOK / META OAUTH
+------------------------------------------------------------
+
+Implement Meta OAuth.
+
+Flow:
+Connect Meta Account
+-> OAuth
+-> Meta authentication
+-> Retrieve authorized Pages
+-> Show Pages
+-> Select Pages
+-> Save SocialConnection
+-> Save SocialProfiles
+
+Before implementation, check current official Meta documentation for:
+- API version
+- OAuth
+- permissions/scopes
+- Page publishing
+- media publishing
+- App Review
+
+Do not assume old permissions are valid.
+
+------------------------------------------------------------
+3.3 LINKEDIN OAUTH
+------------------------------------------------------------
+
+Implement LinkedIn OAuth.
+
+Flow:
+Connect LinkedIn
+-> Authenticate
+-> Retrieve authorized organizations/pages where supported
+-> Select
+-> Save SocialConnection
+-> Save SocialProfiles
+
+Verify current LinkedIn API capabilities before implementation.
+
+------------------------------------------------------------
+3.4 SOCIAL CONNECTION
+------------------------------------------------------------
+
+Create:
+
+SocialConnection
+
+Fields:
+id
+workspaceId
+connectedByUserId
+provider
+providerAccountId
+displayName
+avatarUrl
+status
+accessTokenEncrypted
+refreshTokenEncrypted
+tokenExpiresAt
+metadata
+createdAt
+updatedAt
+
+Providers:
+META
+LINKEDIN
+
+------------------------------------------------------------
+3.5 API-CONNECTED SOCIAL PROFILE
+------------------------------------------------------------
+
+Extend SocialProfile with:
+provider
+providerProfileId
+socialConnectionId
+workspaceId
+name
+username
+profileUrl
+avatarUrl
+type
+metadata
+status
+
+------------------------------------------------------------
+3.6 LINK EXISTING MANUAL PROFILES
+------------------------------------------------------------
+
+Do not delete Phase 1 records.
+
+If Phase 1 contains:
+Facebook - IT Eksperts
+
+and Phase 3 discovers the real Page:
+Facebook - IT Eksperts
+
+Provide:
+[Link Existing Profile]
+
+Preserve:
+Posts
+History
+Tasks
+Notes
+Assignments
+
+------------------------------------------------------------
+3.7 AUTOMATIC PUBLISHING
+------------------------------------------------------------
+
+At scheduled time:
+
+1. Load PostTarget.
+2. Load Post.
+3. Load SocialProfile.
+4. Load SocialConnection.
+5. Validate permissions.
+6. Validate token.
+7. Validate content.
+8. Validate media.
+9. Publish through provider.
+10. Store provider response.
+11. Mark target PUBLISHED.
+12. Update overall Post status.
+
+------------------------------------------------------------
+3.8 REDIS + BULLMQ
+------------------------------------------------------------
+
+Use:
+Redis
+BullMQ
+
+Separate worker process.
+
+Do not use setTimeout for production scheduling.
+
+Jobs should contain IDs only:
+postId
+workspaceId
+postTargetId
+socialProfileId
+
+Never put access tokens into Redis job payloads.
+
+------------------------------------------------------------
+3.9 RETRIES
+------------------------------------------------------------
+
+Temporary failure retry example:
+
+Attempt 1: 30 seconds
+Attempt 2: 2 minutes
+Attempt 3: 10 minutes
+
+Do not retry permanent errors:
+Invalid token
+Permission denied
+Invalid Page
+Unsupported media
+Permanent API rejection
+
+------------------------------------------------------------
+3.10 IDEMPOTENCY
+------------------------------------------------------------
+
+Before publishing:
+Check PostTarget status.
+
+If already PUBLISHED:
+Do not publish again.
+
+Store provider post ID.
+
+------------------------------------------------------------
+3.11 AUTOMATIC STATUS
+------------------------------------------------------------
+
+Statuses:
+SCHEDULED
+PROCESSING
+PUBLISHED
+PARTIALLY_PUBLISHED
+FAILED
+REAUTH_REQUIRED
+BLOCKED
+
+Example:
+Facebook IT Eksperts = PUBLISHED
+Facebook MoneyMuse = FAILED
+LinkedIn IT Eksperts = PUBLISHED
+
+Overall:
+PARTIALLY_PUBLISHED
+
+------------------------------------------------------------
+3.12 FAILED POSTS
+------------------------------------------------------------
+
+Show:
+Post
+Platform
+Social Profile
+Error
+Time
+Attempts
+
+Actions:
+[Retry]
+[Reconnect Account]
+[Edit Post]
+
+------------------------------------------------------------
+3.13 TOKEN SECURITY
+------------------------------------------------------------
+
+Never expose tokens to the browser.
+
+Encrypt access/refresh tokens.
+
+Environment:
+ENCRYPTION_KEY=
+
+Never store tokens in:
+- localStorage
+- Redis jobs
+- URLs
+- React props
+- logs
+
+------------------------------------------------------------
+3.14 TEAM PERMISSIONS
+------------------------------------------------------------
+
+Keep the Phase 1 permission system.
+
+Example:
+Mufaqar = Manage
+Ahmed = Publish
+Ali = View
+Sara = Approve
+
+Only authorized users can connect, disconnect, publish or manage.
+
+------------------------------------------------------------
+3.15 OPTIONAL APPROVAL WORKFLOW
+------------------------------------------------------------
+
+If enabled:
+
+AUTHOR
+-> PENDING_APPROVAL
+-> APPROVER
+-> APPROVED
+-> SCHEDULED
+-> AUTOMATICALLY PUBLISHED
+
+------------------------------------------------------------
+3.16 AUTOMATIC MEDIA
+------------------------------------------------------------
+
+Where officially supported:
+Upload media.
+Attach media.
+Publish.
+
+If unsupported:
+Show a clear capability message.
+
+Never fake media publishing.
+
+------------------------------------------------------------
+3.17 PHASE 3 ACCEPTANCE TEST
+------------------------------------------------------------
+
+Connect:
+Meta Account A
+
+Select:
+Facebook IT Eksperts
+Facebook MoneyMuse
+Facebook WC Pulse
+
+Connect:
+LinkedIn Account A
+
+Select:
+LinkedIn IT Eksperts
+
+Create:
+AI Chatbot Promotion
+
+Schedule:
+Facebook IT Eksperts - 10:00 AM
+Facebook MoneyMuse - 10:15 AM
+Facebook WC Pulse - 10:30 AM
+LinkedIn IT Eksperts - 11:00 AM
+
+System creates jobs.
+
+At each scheduled time the system publishes automatically.
+
+History records every result.
+
+PHASE 3 COMPLETE.
+
+============================================================
+DATABASE EVOLUTION
+============================================================
+
+PHASE 1 CORE:
+User
+Workspace
+WorkspaceMember
+SocialProfile
+Post
+PostVariant
+PostTarget
+Media
+PostComment
+ActivityLog
+Notification
+
+PHASE 2:
+scheduledAt
+timezone
+reminderAt
+overdue state
+
+PHASE 3:
+SocialConnection
+OAuthState
+providerAccountId
+providerProfileId
+encrypted tokens
+PublishAttempt
+providerPostId
+retry fields
+provider errors
+publishing logs
+
+============================================================
+FINAL UI
+============================================================
+
+Phase 1:
+Dashboard
+Posts
+Social Profiles
+Media
+Team
+Activity
+Settings
+
+Phase 2 adds:
+Calendar
+Tasks
+
+Phase 3 adds:
+Connections
+Publishing History
+API Status
+
+Final:
+Dashboard
+Posts
+Calendar
+Tasks
+Social Profiles
+Connections
+Media
+Team
+Approvals
+Publishing History
+Activity
+Analytics
+Templates
+Settings
+
+============================================================
+ARCHITECTURE
+============================================================
+
+PHASE 1:
+ME + TEAM
+    |
+    v
+MANUAL SOCIAL PROFILES
+    |
+    v
+CREATE POSTS
+    |
+    v
+ASSIGN TEAM MEMBERS
+    |
+    v
+TEAM MANUALLY POSTS
+    |
+    v
+MARK COMPLETE
+
+PHASE 2:
+POSTS
+    |
+    v
+CALENDAR
+    |
+    v
+DATE + TIME
+    |
+    v
+ASSIGN TEAM MEMBER
+    |
+    v
+REMINDER
+    |
+    v
+TEAM MANUALLY POSTS
+    |
+    v
+MARK COMPLETE
+
+PHASE 3:
+POSTS
+    |
+    v
+CALENDAR
+    |
+    v
+DATE + TIME
+    |
+    v
+QUEUE
+    |
+    v
+BULLMQ + REDIS
+    |
+    +----> META / FACEBOOK API
+    |
+    +----> LINKEDIN API
+    |
+    v
+AUTOMATIC PUBLISH
+    |
+    v
+PUBLISHING HISTORY
+
+============================================================
+IMPORTANT DEVELOPMENT RULE
+============================================================
+
+DO NOT build Phase 3 first.
+
+Phase 1 must work without:
+- Meta developer account
+- LinkedIn developer account
+- OAuth
+- Redis
+- BullMQ
+- External social APIs
+
+Phase 2 must work without external social APIs.
+
+Only Phase 3 introduces OAuth and automatic publishing.
+
+============================================================
+PHASE GATES
+============================================================
+
+PHASE 1 GATE
+
+I can:
+- Login
+- Create workspace
+- Add team members
+- Add multiple Facebook profiles/pages
+- Add multiple LinkedIn profiles/pages
+- Create posts
+- Add media
+- Create Facebook content
+- Create LinkedIn content
+- Select multiple social profiles
+- Assign posts
+- Copy content
+- Manually publish
+- Mark each target completed
+- View history
+
+Only after this works:
+START PHASE 2.
+
+PHASE 2 GATE
+
+I can:
+- Schedule posts
+- Assign date/time
+- Assign team members
+- View calendar
+- Filter calendar
+- See daily tasks
+- Receive reminders
+- Track overdue tasks
+- Manually publish
+- Mark completed
+
+Only after this works:
+START PHASE 3.
+
+PHASE 3 GATE
+
+I can:
+- Connect Meta account
+- Discover authorized Pages
+- Connect LinkedIn account
+- Discover authorized organizations/pages
+- Link existing manual profiles
+- Schedule automatic posts
+- Automatically publish
+- Track status
+- Retry failures
+- Handle token expiration
+- View publishing history
+- Maintain team permissions
+
+============================================================
+CODING AGENT INSTRUCTION
+============================================================
+
+When starting:
+
+1. Inspect the existing project.
+2. Identify Next.js version.
+3. Identify Tailwind version.
+4. Identify package manager.
+5. Inspect existing components.
+6. Inspect database configuration.
+7. Do not delete working code.
+8. Create a technical plan.
+9. Implement PHASE 1 ONLY.
+10. Run lint.
+11. Run TypeScript checks.
+12. Run tests.
+13. Fix errors.
+14. Verify Phase 1 acceptance tests.
+15. STOP.
+
+Do not implement Phase 2 until explicitly instructed.
+
+When Phase 2 is requested:
+Implement Phase 2 only, test it, then stop.
+
+When Phase 3 is requested:
+Implement Phase 3 only.
+
+Before Facebook/Meta or LinkedIn integration, check current official documentation and verify current API permissions, endpoints, OAuth requirements, media capabilities, API versions and restrictions.
+
+Never invent API behavior.
+
+============================================================
+FINAL PRINCIPLE
+============================================================
+
+START SIMPLE AND PROGRESSIVELY AUTOMATE.
+
+PHASE 1 = MANAGE
+PHASE 2 = SCHEDULE
+PHASE 3 = AUTOMATE
+
+The user must be able to start using the system immediately in Phase 1
+without connecting any Facebook or LinkedIn API.
+
+Phase 2 adds planning and scheduling.
+
+Phase 3 turns the same workflow into automatic publishing.
+
+Do not over-engineer Phase 1.
+Do not require external API credentials until Phase 3.
+Do not rewrite the application between phases.
+Build each phase on the previous phase.

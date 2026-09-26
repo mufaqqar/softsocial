@@ -1,0 +1,82 @@
+import type { WorkspaceRole } from "@/generated/prisma/enums";
+
+/**
+ * Granular permission keys. Phase 1 maps the three roles from master.txt onto
+ * these; later phases (approvals, publishing) add keys here without touching
+ * the call sites.
+ */
+export const PERMISSIONS = {
+  workspaceRead: "workspace:read",
+  workspaceManage: "workspace:manage",
+  teamRead: "team:read",
+  teamManage: "team:manage",
+  profileRead: "profile:read",
+  profileManage: "profile:manage",
+  postRead: "post:read",
+  postManage: "post:manage",
+  postComment: "post:comment",
+  targetUpdate: "target:update",
+  targetUpdateAny: "target:update-any",
+  mediaRead: "media:read",
+  mediaManage: "media:manage",
+  activityRead: "activity:read",
+} as const;
+
+export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+
+const ALL: readonly Permission[] = Object.values(PERMISSIONS);
+
+export const ROLE_PERMISSIONS: Record<WorkspaceRole, readonly Permission[]> = {
+  OWNER: ALL,
+  ADMIN: [
+    PERMISSIONS.workspaceRead,
+    PERMISSIONS.teamRead,
+    PERMISSIONS.teamManage,
+    PERMISSIONS.profileRead,
+    PERMISSIONS.profileManage,
+    PERMISSIONS.postRead,
+    PERMISSIONS.postManage,
+    PERMISSIONS.postComment,
+    PERMISSIONS.targetUpdate,
+    PERMISSIONS.targetUpdateAny,
+    PERMISSIONS.mediaRead,
+    PERMISSIONS.mediaManage,
+    PERMISSIONS.activityRead,
+  ],
+  // A member publishes by hand: they can read everything in the workspace, work
+  // their own targets, and comment. They cannot create or reassign anything.
+  MEMBER: [
+    PERMISSIONS.workspaceRead,
+    PERMISSIONS.teamRead,
+    PERMISSIONS.profileRead,
+    PERMISSIONS.postRead,
+    PERMISSIONS.postComment,
+    PERMISSIONS.targetUpdate,
+    PERMISSIONS.mediaRead,
+  ],
+};
+
+export function permissionsFor(role: WorkspaceRole): readonly Permission[] {
+  return ROLE_PERMISSIONS[role] ?? [];
+}
+
+export function can(
+  permissions: readonly Permission[],
+  permission: Permission,
+): boolean {
+  return permissions.includes(permission);
+}
+
+export const ROLE_LABELS: Record<WorkspaceRole, string> = {
+  OWNER: "Owner",
+  ADMIN: "Admin",
+  MEMBER: "Member",
+};
+
+export const ASSIGNABLE_ROLES: readonly WorkspaceRole[] = ["ADMIN", "MEMBER"];
+
+export function isAtLeast(role: WorkspaceRole, minimum: WorkspaceRole) {
+  const rank: Record<WorkspaceRole, number> = { MEMBER: 1, ADMIN: 2, OWNER: 3 };
+
+  return rank[role] >= rank[minimum];
+}
