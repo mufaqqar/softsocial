@@ -10,7 +10,9 @@ import {
   FileText,
   Images,
   LayoutDashboard,
+  Link2,
   ListChecks,
+  Send,
   Share2,
   Users,
 } from "lucide-react";
@@ -49,6 +51,18 @@ const NAV_ITEMS: NavItem[] = [
     permission: PERMISSIONS.profileRead,
   },
   { href: "/dashboard/media", label: "Media", icon: Images, permission: PERMISSIONS.mediaRead },
+  {
+    href: "/dashboard/connections",
+    label: "Connections",
+    icon: Link2,
+    permission: PERMISSIONS.connectionRead,
+  },
+  {
+    href: "/dashboard/publishing",
+    label: "Publishing",
+    icon: Send,
+    permission: PERMISSIONS.publishRead,
+  },
   { href: "/dashboard/team", label: "Team", icon: Users, permission: PERMISSIONS.teamRead },
   { href: "/dashboard/activity", label: "Activity", icon: Activity },
 ];

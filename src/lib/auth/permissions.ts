@@ -20,6 +20,14 @@ export const PERMISSIONS = {
   mediaRead: "media:read",
   mediaManage: "media:manage",
   activityRead: "activity:read",
+  // Phase 3. Connection and publishing keys are separate on purpose: seeing that
+  // a connection needs attention is read access, while replacing a credential or
+  // forcing a publish is a write that can put content on a public page.
+  connectionRead: "connection:read",
+  connectionManage: "connection:manage",
+  publishRead: "publish:read",
+  publishExecute: "publish:execute",
+  publishRetry: "publish:retry",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -42,9 +50,19 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, readonly Permission[]> = {
     PERMISSIONS.mediaRead,
     PERMISSIONS.mediaManage,
     PERMISSIONS.activityRead,
+    PERMISSIONS.connectionRead,
+    PERMISSIONS.connectionManage,
+    PERMISSIONS.publishRead,
+    PERMISSIONS.publishExecute,
+    PERMISSIONS.publishRetry,
   ],
   // A member publishes by hand: they can read everything in the workspace, work
   // their own targets, and comment. They cannot create or reassign anything.
+  //
+  // Phase 3: members also get read access to connections and publish history, so
+  // they can see why a post did or did not go out and tell an admin when a
+  // reconnect is needed. They cannot connect an account or force a retry, since
+  // both result in content appearing on a public page.
   MEMBER: [
     PERMISSIONS.workspaceRead,
     PERMISSIONS.teamRead,
@@ -53,6 +71,8 @@ export const ROLE_PERMISSIONS: Record<WorkspaceRole, readonly Permission[]> = {
     PERMISSIONS.postComment,
     PERMISSIONS.targetUpdate,
     PERMISSIONS.mediaRead,
+    PERMISSIONS.connectionRead,
+    PERMISSIONS.publishRead,
   ],
 };
 
