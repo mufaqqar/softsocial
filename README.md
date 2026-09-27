@@ -1,4 +1,4 @@
-# SoftSocial — Phases 1 and 2
+# SoftSocial — Phases 1, 2 and 3
 
 A multi-workspace content management tool for social media teams.
 
@@ -8,12 +8,13 @@ human publishes them on Facebook and LinkedIn themselves.
 **Phase 2 adds internal scheduling.** Each target can be given a date, a time, a
 timezone and a reminder, and the app tracks what is due today, what is overdue and
 what is coming up. Phase 2 does **not** change who publishes: scheduling decides
-*when* a task is due, and a person still publishes it by hand. The app never calls
-a social network API in either phase.
+*when* a task is due, and a person still publishes it by hand.
 
-`master.txt` also specifies Phase 3 (real publishing through the Meta and LinkedIn
-APIs). That is not implemented here, although the database schema already carries
-the nullable columns it needs.
+**Phase 3 adds real publishing** through the Meta and LinkedIn APIs, per
+`master.txt` section 3. A connected Facebook Page or LinkedIn organisation is
+published to automatically by a standalone worker, with retries, idempotency and
+per-attempt history. Manual publishing still works unchanged, so a workspace can
+run both at once.
 
 ## What Phase 1 does
 
@@ -68,18 +69,50 @@ cannot fire while the app is closed; it is delivered the next time the assignee
 opens SoftSocial. Delivery is idempotent, so navigating around does not produce
 duplicate notifications.
 
+## What Phase 3 adds
+
+- **Connections** (`/dashboard/connections`) — connect a Facebook Page or a
+  LinkedIn organisation over OAuth. The app stores only the long-lived token,
+  encrypted; short-lived Page and member credentials are re-derived per attempt.
+- **Automatic publishing.** A target on a connected profile is published by the
+  worker at its scheduled time. `src/lib/publishing/dispatch.ts` is the single
+  entry point, so the pipeline never branches on platform itself.
+- **A standalone worker** (`npm run worker`) consuming a BullMQ queue on Redis.
+  It is deliberately a separate process: a serverless function cannot hold a
+  Redis connection open, and a publish must survive the request that scheduled it.
+- **Retries with the right split.** A transient failure (rate limit, timeout, 5xx)
+  is retried on a 30s / 2m / 10m backoff. A permanent failure (revoked token,
+  missing permission, deleted Page) is recorded and left for a human, because
+  retrying only reproduces the rejection.
+- **Idempotency.** A job is claimed with a conditional update, so two workers
+  racing on one target produce exactly one publish, and a worker that crashed
+  after the provider accepted the post does not publish again.
+- **Publish history and API status** (`/dashboard/publishing`) — one row per
+  attempt, including the failures and why, plus a per-provider report of what is
+  configured. Retrying re-arms a single profile.
+- **Encrypted tokens at rest** (AES-256-GCM), so a row edited directly in the
+  database cannot be swapped for an attacker-controlled value.
+
+Phase 3 stays inert until `ENCRYPTION_KEY`, `REDIS_URL` and the Meta/LinkedIn
+credentials are set. Missing values are reported by the connections and publishing
+pages rather than crashing the app, and nothing is validated at import time, so a
+build never fails for want of a production secret.
+
 ## Roles
 
-| Capability                | Owner | Admin | Member |
-| ------------------------- | :---: | :---: | :----: |
-| Manage workspace settings |   ✓   |       |        |
-| Manage team               |   ✓   |   ✓   |        |
-| Manage profiles and posts |   ✓   |   ✓   |        |
-| Schedule and move targets |   ✓   |   ✓   |        |
-| Update any target         |   ✓   |   ✓   |        |
-| Update own targets        |   ✓   |   ✓   |   ✓   |
-| Comment                   |   ✓   |   ✓   |   ✓   |
-| Read everything           |   ✓   |   ✓   |   ✓   |
+| Capability                    | Owner | Admin | Member |
+| ----------------------------- | :---: | :---: | :----: |
+| Manage workspace settings     |   ✓   |       |        |
+| Manage team                   |   ✓   |   ✓   |        |
+| Manage profiles and posts     |   ✓   |   ✓   |        |
+| Schedule and move targets     |   ✓   |   ✓   |        |
+| Update any target             |   ✓   |   ✓   |        |
+| Update own targets            |   ✓   |   ✓   |   ✓   |
+| Comment                       |   ✓   |   ✓   |   ✓   |
+| Read everything               |   ✓   |   ✓   |   ✓   |
+| Connect or reconnect an account |  ✓   |   ✓   |        |
+| Force a publish or a retry    |   ✓   |   ✓   |        |
+| Read connections and publish history |  ✓   |  ✓   |   ✓   |
 
 The single source of truth is `src/lib/auth/permissions.ts`, and every Server
 Action checks a permission through the data-access layer.
@@ -91,6 +124,7 @@ Action checks a permission through the data-access layer.
 - Prisma 7 with PostgreSQL, generated into `src/generated/prisma`
 - Zod for every Server Action payload
 - `jose` for the signed session cookie, scrypt for passwords
+- BullMQ on Redis (via `ioredis`) for the publish queue
 - Vitest for unit tests
 
 ## Getting started
@@ -112,12 +146,17 @@ cp .env.example .env
 Set at minimum:
 
 - `DATABASE_URL` / `DIRECT_URL` — PostgreSQL connection strings.
-- `AUTH_SECRET` — 32 random bytes, e.g. `openssl rand -base64 32`.
+- `AUTH_SECRET` — 32 random bytes, e.g. `openssl rand -base64 32`. Only presence
+  is checked, so a placeholder would be accepted and every session cookie would be
+  forgeable.
 - `STORAGE_PROVIDER` — `local` for development, `supabase` in production.
 
 The `local` storage driver writes into `STORAGE_LOCAL_DIR` (default
 `./storage`) and is **not** durable on serverless hosts. Use Supabase Storage
 there.
+
+For Phase 3 also set `APP_URL`, `ENCRYPTION_KEY` (32 random bytes),
+`REDIS_URL` and the Meta/LinkedIn credentials. Phases 1 and 2 need none of them.
 
 ### 3. Database
 
@@ -132,9 +171,14 @@ npm run db:seed        # optional: the Phase 1 acceptance data
 
 ```bash
 npm run dev            # http://localhost:3000
+npm run worker         # optional: only needed for Phase 3 publishing
 ```
 
 Register an account, create a workspace, then add profiles, posts and targets.
+
+The worker is a second process and needs its own terminal, a reachable Redis, and
+`ENCRYPTION_KEY` set. Without it the app runs normally and simply queues nothing
+that gets published.
 
 ### Seeded accounts
 
@@ -160,8 +204,10 @@ The seed is idempotent, so it can be re-run safely.
 | `npm run dev`           | Development server                       |
 | `npm run build`         | Production build                         |
 | `npm run start`         | Serve the production build               |
+| `npm run worker`        | Publish worker (Phase 3, separate process) |
+| `npm run worker:watch`  | Publish worker, restarting on change     |
 | `npm run lint`          | ESLint                                  |
-| `npm run typecheck`     | `tsc --noEmit`                           |
+| `npm run typecheck`     | `tsc --noEmit` via `tsconfig.typecheck.json` |
 | `npm test`              | Vitest unit tests                        |
 | `npm run test:coverage` | Vitest with coverage                     |
 | `npm run verify`        | lint + typecheck + test + build          |
@@ -171,6 +217,15 @@ The seed is idempotent, so it can be re-run safely.
 | `npm run db:deploy`     | Apply migrations (production)            |
 | `npm run db:seed`       | Load the acceptance data                 |
 | `npm run db:studio`     | Prisma Studio                            |
+
+`typecheck` deliberately runs through `tsconfig.typecheck.json` rather than
+`tsconfig.json`. Next 16 writes generated route types to `.next/types` during a
+build and `.next/dev/types` during `next dev`, and both files declare the same
+global `PageProps` / `LayoutProps` / `RouteContext`. Next's own type check filters
+`.next/dev/types` out (`next/dist/lib/typescript/runTypeCheck.js`); the
+typecheck config does the same, so a running dev server cannot change the result,
+and it keeps its own build info so it never collides with the one `next build`
+uses.
 
 ## Project layout
 
@@ -182,10 +237,14 @@ src/app/                routes; (auth) and (dashboard) route groups
 src/components/         UI, grouped by feature
 src/generated/prisma/   generated Prisma client (not hand-edited)
 src/lib/auth/           password, session token, session cookie, DAL, permissions
+src/lib/crypto/         AES-256-GCM encryption for provider tokens
 src/lib/data/           workspace-scoped read queries
+src/lib/publishing/     OAuth, provider clients, dispatch, retry and status rules
+src/lib/queue/          BullMQ queue name, Redis config, job payload
 src/lib/storage/        local and Supabase media drivers
 src/lib/validation/     Zod schemas
 src/lib/scheduling.ts   timezone-safe date, range and reminder arithmetic
+src/worker/             standalone BullMQ worker (publish pipeline)
 proxy.ts                cookie-presence redirects only
 ```
 
@@ -210,6 +269,18 @@ proxy.ts                cookie-presence redirects only
 - Media bytes are served by `/api/media/[id]`, which repeats the membership
   check, so a storage key cannot be used to read another workspace's files.
 - Passwords are stored as `scrypt$salt$hash` and compared in constant time.
+- Provider tokens are encrypted at rest with AES-256-GCM, so a token edited
+  directly in the database cannot be swapped without the auth tag failing.
+- Only the long-lived OAuth token is persisted. Page and organisation
+  credentials expire in about an hour and are re-derived per attempt.
+- The queue payload carries identifiers only, so no token, post body or image URL
+  outlives the job that owns it in Redis.
+- Publishing is claimed with a conditional update, so a target cannot be published
+  twice by two workers, and a crash after the provider accepted a post does not
+  cause a second one.
+- Connecting an account and forcing a publish are separate permissions from merely
+  reading that a connection needs attention, because both put content on a public
+  page.
 - Activity is recorded for every sensitive change.
 
 ## Deployment
@@ -218,5 +289,7 @@ proxy.ts                cookie-presence redirects only
 `Dockerfile` builds that image and runs it as a non-root user. On a serverless
 host, set `STORAGE_PROVIDER=supabase` — the local filesystem driver cannot
 persist uploads.
-#   s o f t s o c i a l  
- 
+
+Phase 3 needs a second long-running process, the worker, sharing the same
+`DATABASE_URL` and `REDIS_URL` as the web app. It is not part of `next build` and
+is not started by the web image.
